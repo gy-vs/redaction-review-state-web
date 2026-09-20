@@ -1,5 +1,30 @@
-# Redaction Review Studio
+# Redaction Review Studio（文本脱敏审阅工作台）
 
-Local workbench for redaction findings.
+`npm install` 后 `npm run dev`；`npm test` 运行 16 个场景测试，`npm run build` 类型检查 + 构建。
 
-Run `npm install`, then `npm run dev`.
+## 状态模型
+
+- 建议四阶段：`pending`（待审）→ `accepted`（接受）/ `rejected`（拒绝）→ `applied`（冻结后）。
+- 接受后、冻结前可调整范围（须与检测器原始范围相交），可用撤销回待审（撤销还原检测范围）。
+- 批次由 **文档 revision × 内容哈希 × 检测器版本** 标识；建议在批次内由
+  `rule + 归一化文本 + 出现序号` 的内容指纹标识，跨批次稳定。
+- 重复检测（同 revision/内容/版本）幂等返回同一批次，人工决策原样保留。
+- 新批次调和上一批：精确/近邻（范围轻微变化）命中沿用决策并标 `unchanged|carried`
+  与来源批次；新规则命中标 `new`；消失建议标 `missing` 保留追溯，不参与生成。
+- 生成 = 原子“冻结 + 出文”：要求所有活跃建议均已决策，成功后决策不可修改，
+  最终文本内嵌每条决策的 `decision/scope/findingRev` 快照；有待审项则整体失败、零变更。
+
+## 并发与冲突（不做最后写入覆盖）
+
+- 文档保存：`revision` 乐观锁，过期 → 409 `revision_conflict`。
+- 决策提交逐条带 `finding.rev`；过期条目进响应 `conflicts`，其余条目正常写入（部分批量提交）。
+- 批次整体 `batch.rev`：生成必须携带，过期 → 409 `batch_revision_conflict`。
+- 文档在检测后被编辑（doc rev 前进）时旧批次禁止生成 → 409 `document_revision_conflict`，
+  避免一半新一半旧的决策混入最终文本。
+
+## 前端操作
+
+- 泳道： 待审 / 接受 / 拒绝 / 已应用；消失建议单独分组。
+- 键盘：勾选后 `A` 接受、`R` 拒绝、`Z` 撤销；无勾选时作用于待审泳道，
+  `Shift+` 作用于全部活跃建议，`Ctrl/⌘+A` 全选，`Esc` 清空。
+- 接受集实时脱敏预览（与服务端合并区间规则一致）；冻结后展示最终文本、决策快照与批次审计轨迹。
